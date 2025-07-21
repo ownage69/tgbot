@@ -37,7 +37,7 @@ def register_handlers(bot):
     @bot.message_handler(commands=['remove'])
     def remove_from_queue(message):
         # Проверка: только админ может удалять (по Telegram ID)
-        admin_id = 424895903  
+        admin_id = 123456789 
         if message.from_user.id != admin_id:
             bot.send_message(message.chat.id, "У вас нет прав для этой команды.")
             return
