@@ -34,6 +34,29 @@ def register_handlers(bot):
         add_user(user_id, fi)
         bot.send_message(message.chat.id, f"Записал вас как: <b>{fi}</b>", parse_mode='HTML')
 
+    @bot.message_handler(commands=['remove'])
+    def remove_from_queue(message):
+        # Проверка: только админ может удалять (по Telegram ID)
+        admin_id = 424895903  # ← сюда вставь свой Telegram ID
+        if message.from_user.id != admin_id:
+            bot.send_message(message.chat.id, "У вас нет прав для этой команды.")
+            return
+
+        try:
+            _, user_id_str, lab_number = message.text.strip().split()
+            user_id = int(user_id_str)
+        except ValueError:
+            bot.send_message(message.chat.id, "Неверный формат. Используйте:\n/remove <user_id> <lab_number>")
+            return
+
+        from database import remove_user_from_lab
+
+        success = remove_user_from_lab(user_id, lab_number)
+        if success:
+            bot.send_message(message.chat.id, f"Пользователь {user_id} удалён из лабораторной №{lab_number}")
+        else:
+            bot.send_message(message.chat.id, "Такого пользователя в очереди нет или ошибка.")
+
     @bot.message_handler(func=lambda message: message.text == 'Зарегистрироваться')
     def queue_command(message):
         user_id = message.from_user.id
