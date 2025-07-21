@@ -37,7 +37,7 @@ def register_handlers(bot):
     @bot.message_handler(commands=['remove'])
     def remove_from_queue(message):
         # Проверка: только админ может удалять (по Telegram ID)
-        admin_id = 424895903  # ← сюда вставь свой Telegram ID
+        admin_id = 424895903  
         if message.from_user.id != admin_id:
             bot.send_message(message.chat.id, "У вас нет прав для этой команды.")
             return
@@ -147,7 +147,7 @@ def register_handlers(bot):
 
         fi, subgroup = user_data
 
-        user_labs = get_user_labs(user_id)  # Вот здесь вызываем функцию, чтобы получить список загруженных лаб
+        user_labs = get_user_labs(user_id)  
 
         if user_labs:
             labs_text = ", ".join(sorted(user_labs, key=int))
