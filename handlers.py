@@ -1,7 +1,7 @@
 from telebot import types
-from database import add_user, get_user, update_subgroup
-from database import add_to_queue
+from database import add_user, get_user, update_subgroup, add_to_queue, AVAILABLE_LABS, get_lab_queue_by_subgroup, get_user_labs, is_fi_taken
 
+# Пользователи которые будут зарегистрированы
 registered_users = {}
 
 def register_handlers(bot):
@@ -13,16 +13,7 @@ def register_handlers(bot):
         markup.row(types.KeyboardButton('Зарегистрироваться'), types.KeyboardButton('Выбрать подгруппу'))
         markup.row(types.KeyboardButton('Посмотреть информацию о себе'), types.KeyboardButton('Записаться в очередь'))
         markup.row(types.KeyboardButton('Вывести очередь на лабы'))
-        bot.send_message(message.chat.id, "Привет! Я бот для записи в очередь. Чтобы записаться напиши /queue или выбери соотвествующий пункт в меню", reply_markup=markup)
-
-    @bot.message_handler(func=lambda message: message.text == 'Зарегистрироваться')
-    def queue_command(message):
-        user_id = message.from_user.id
-        if get_user(user_id):
-            bot.send_message(message.chat.id, "Вы уже зарегистрированы")
-        else:
-            bot.send_message(message.chat.id, "Введите свою фамилию и имя <b>(два слова)</b>", parse_mode='HTML')
-            bot.register_next_step_handler(message, save_fi)
+        bot.send_message(message.chat.id, "Привет! Я бот для записи в очередь. Для начала тебе надо зарегистрироваться. Нажми соответствующую кнопку в меню", reply_markup=markup)
 
     def save_fi(message):
         words = message.text.strip().split()
@@ -30,44 +21,123 @@ def register_handlers(bot):
             bot.send_message(message.chat.id, "Неверный формат. Введите фамилию и имя ещё раз.")
             bot.register_next_step_handler(message, save_fi)
             return
-        user_id = message.from_user.id
+
         fi = message.text.strip()
+        user_id = message.from_user.id
+
+        # Проверяем, не занято ли это ФИ у другого пользователя
+        if is_fi_taken(fi):
+            bot.send_message(message.chat.id, "Эти фамилия и имя уже зарегистрированы другим пользователем. Повторите попытку")
+            bot.register_next_step_handler(message, save_fi)
+            return
+
         add_user(user_id, fi)
         bot.send_message(message.chat.id, f"Записал вас как: <b>{fi}</b>", parse_mode='HTML')
+
+    @bot.message_handler(func=lambda message: message.text == 'Зарегистрироваться')
+    def queue_command(message):
+        user_id = message.from_user.id
+        if get_user(user_id):
+            bot.send_message(message.chat.id, "Вы уже зарегистрированы")
+        else:
+            bot.send_message(message.chat.id, "Введите свою фамилию и имя <b>(два слова) (!) сменить в будущем будет нельзя</b>", parse_mode='HTML')
+            bot.register_next_step_handler(message, save_fi)
+
+    @bot.message_handler(func=lambda message: message.text == 'Вывести очередь на лабы')
+    def show_queue(message):
+        user_id = message.from_user.id
+        user_data = get_user(user_id)
+
+        if not user_data:
+            bot.send_message(message.chat.id, "Сначала зарегистрируйтесь!")
+            return
+
+        fi, subgroup = user_data
+        rows = get_lab_queue_by_subgroup(subgroup)
+
+        if not rows:
+            bot.send_message(message.chat.id, "⛔ Очередь пуста для вашей подгруппы.")
+            return
+
+        queue_text = f"📋 Очередь на лабораторные (Подгруппа {subgroup}):\n"
+        labs = {}
+
+        for lab_number, student_fi in rows:
+            if lab_number not in labs:
+                labs[lab_number] = []
+            labs[lab_number].append(student_fi)
+
+        for lab_number in sorted(labs, key=lambda x: int(x)):
+            queue_text += f"\n🔬 Лабораторная №{lab_number}:\n"
+            for i, student_fi in enumerate(labs[lab_number], 1):
+                queue_text += f"  {i}. {student_fi}\n"
+
+        bot.send_message(message.chat.id, queue_text)
 
     @bot.message_handler(func=lambda message: message.text == 'Выбрать подгруппу')
     def choose_subgroup(message):
         user_id = message.from_user.id
         if not get_user(user_id):
-            bot.send_message(message.chat.id, "Сначала зарегистрируйтесь через меню или команду /queue")
+            bot.send_message(message.chat.id, "Сначала зарегистрируйтесь через меню")
             return
+        # Проверка, если подгруппа уже выбрана — запретить менять
+        user_data = get_user(user_id)
+        fi, subgroup = user_data
+        if subgroup:
+            bot.send_message(message.chat.id, f"Подгруппа уже выбрана: <b>{subgroup}</b>. Её изменить нельзя.",
+                             parse_mode='HTML')
+            return
+
         markup = types.InlineKeyboardMarkup()
         subgroupbtn1 = types.InlineKeyboardButton('1', callback_data='subgroup_1')
         subgroupbtn2 = types.InlineKeyboardButton('2', callback_data='subgroup_2')
         markup.row(subgroupbtn1, subgroupbtn2)
-        bot.send_message(message.chat.id, "Выберите подгруппу:", reply_markup=markup)
+        bot.send_message(message.chat.id, "Выберите подгруппу (!) опять же сменить в будущем ее будет нельзя:", reply_markup=markup)
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('subgroup_'))
     def handle_subgroup(call):
         user_id = call.from_user.id
-        subgroup = call.data.split('_')[1]
-        update_subgroup(user_id, subgroup)
-        bot.answer_callback_query(call.id, f"Подгруппа {subgroup} выбрана!")
-        bot.send_message(call.message.chat.id, f"Вы записаны в подгруппу <b>{subgroup}</b>", parse_mode='HTML')
+        new_subgroup = call.data.split('_')[1]
+
+        user_data = get_user(user_id)
+        if not user_data:
+            bot.answer_callback_query(call.id, "Сначала зарегистрируйтесь!", show_alert=True)
+            return
+
+        fi, current_subgroup = user_data
+        if current_subgroup:
+            bot.answer_callback_query(call.id, "Вы уже выбрали подгруппу, изменить нельзя!", show_alert=True)
+            return
+
+        update_subgroup(user_id, new_subgroup)
+        bot.answer_callback_query(call.id, f"Подгруппа {new_subgroup} выбрана!")
+        bot.send_message(call.message.chat.id, f"Вы записаны в подгруппу <b>{new_subgroup}</b>", parse_mode='HTML')
 
     @bot.message_handler(func=lambda message: message.text == 'Посмотреть информацию о себе')
     def show_info(message):
         user_id = message.from_user.id
         user_data = get_user(user_id)
-        if user_data:
-            fi, subgroup = user_data
-            subgroup = subgroup if subgroup else "не выбрана"
-            bot.reply_to(message, f"""Информация о <b>{message.from_user.first_name}</b>:
-Записан в очереди как: <b>{fi}</b>
-Номер подгруппы: <b>{subgroup}</b>""", parse_mode="HTML")
 
+        if not user_data:
+            bot.send_message(message.chat.id, "Вы ещё не зарегистрированы!")
+            return
+
+        fi, subgroup = user_data
+
+        user_labs = get_user_labs(user_id)  # Вот здесь вызываем функцию, чтобы получить список загруженных лаб
+
+        if user_labs:
+            labs_text = ", ".join(sorted(user_labs, key=int))
         else:
-            bot.send_message(message.chat.id, "Вы ещё не зарегистрированы")
+            labs_text = "Нет загруженных лаб"
+
+        bot.send_message(
+            message.chat.id,
+            f"""👤 Вы: <b>{fi}</b>
+👥 Подгруппа: <b>{subgroup}</b>
+📚 Загруженные лабораторные: <b>{labs_text}</b>""",
+            parse_mode='HTML'
+        )
 
     pending_labs = {}
 
@@ -75,7 +145,7 @@ def register_handlers(bot):
     def select_lab(message):
         user_id = message.from_user.id
         if not get_user(user_id):
-            bot.send_message(message.chat.id, "Сначала зарегистрируйтесь через меню или команду /queue")
+            bot.send_message(message.chat.id, "Сначала зарегистрируйтесь через меню")
             return
 
         markup = types.InlineKeyboardMarkup()
@@ -89,6 +159,10 @@ def register_handlers(bot):
     def sign_up_for_lab(call):
         user_id = call.from_user.id
         lab_number = call.data.split('_')[-1]
+
+        if lab_number not in AVAILABLE_LABS:
+            bot.answer_callback_query(call.id, f"❌ Лабораторная №{lab_number} пока недоступна для записи.")
+            return  # прекращаем выполнение
 
         user_data = get_user(user_id)
         if not user_data:
@@ -136,15 +210,15 @@ def register_handlers(bot):
             return
 
         fi, subgroup = get_user(user_id)
-        success = add_to_queue(user_id, fi, subgroup, lab_number)
+        result = add_to_queue(user_id, fi, subgroup, lab_number)
 
-        if success:
-            bot.send_message(message.chat.id,
-                             f"✅ Вы успешно записались на лабораторную №<b>{lab_number}</b>\n{submission}",
-                             parse_mode='HTML')
+        if result == "not_available":
+            bot.send_message(message.chat.id, f"❌ Лабораторная №{lab_number} пока недоступна для записи.")
+        elif result is False:
+            bot.send_message(message.chat.id, f"⚠ Вы уже записаны на лабораторную №{lab_number}.")
         else:
             bot.send_message(message.chat.id,
-                             f"⚠ Вы уже записаны на лабораторную №{lab_number}.",
+                             f"✅ Вы успешно записались на лабораторную №<b>{lab_number}</b>\n{submission}",
                              parse_mode='HTML')
 
         del pending_labs[user_id]
