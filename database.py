@@ -1,5 +1,6 @@
 import sqlite3
 
+# Доступные лабы
 AVAILABLE_LABS = ['1']
 
 def init_db():
@@ -93,3 +94,12 @@ def is_fi_taken(fi):
     result = cur.fetchone()
     conn.close()
     return result is not None
+
+def remove_user_from_lab(user_id, lab_number):
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM queue WHERE user_id = ? AND lab_number = ?", (user_id, lab_number))
+    conn.commit()
+    changes = cursor.rowcount
+    conn.close()
+    return changes > 0
