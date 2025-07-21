@@ -1,5 +1,7 @@
 import sqlite3
 
+AVAILABLE_LABS = ['1']
+
 def init_db():
     conn = sqlite3.connect('users.db')
     cur = conn.cursor()
@@ -7,33 +9,35 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             fi TEXT NOT NULL,
-            subgroup TEXT NOT NULL
+            subgroup TEXT
+        )
+    ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS queue (
+            user_id INTEGER,
+            fi TEXT,
+            subgroup TEXT,
+            lab_number TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     conn.commit()
     conn.close()
 
 def add_to_queue(user_id, fi, subgroup, lab_number):
+    if lab_number not in AVAILABLE_LABS:
+        return "not_available"
+
     conn = sqlite3.connect('users.db')
     cursor = conn.cursor()
 
-        # Создаём таблицу, если её ещё нет
-    cursor.execute('''CREATE TABLE IF NOT EXISTS queue (
-            user_id INTEGER,
-            fi TEXT,
-            subgroup TEXT,
-            lab_number TEXT
-                        )''')
-
-# Проверяем, не записан ли пользователь уже на эту лабораторную
     cursor.execute("SELECT * FROM queue WHERE user_id = ? AND lab_number = ?", (user_id, lab_number))
     if cursor.fetchone():
         conn.close()
-        return False  # Уже есть запись
+        return False
 
-# Добавляем пользователя в очередь
     cursor.execute("INSERT INTO queue (user_id, fi, subgroup, lab_number) VALUES (?, ?, ?, ?)",
-                       (user_id, fi, subgroup, lab_number))
+                   (user_id, fi, subgroup, lab_number))
 
     conn.commit()
     conn.close()
@@ -60,3 +64,32 @@ def get_user(user_id):
     result = cur.fetchone()
     conn.close()
     return result
+
+def get_lab_queue_by_subgroup(subgroup):
+    conn = sqlite3.connect('users.db')
+    cur = conn.cursor()
+    cur.execute('''
+        SELECT lab_number, fi
+        FROM queue
+        WHERE subgroup = ?
+        ORDER BY lab_number ASC, timestamp ASC
+    ''', (subgroup,))
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+def get_user_labs(user_id):
+    conn = sqlite3.connect('users.db')
+    cur = conn.cursor()
+    cur.execute("SELECT DISTINCT lab_number FROM queue WHERE user_id = ?", (user_id,))
+    labs = [row[0] for row in cur.fetchall()]
+    conn.close()
+    return labs
+
+def is_fi_taken(fi):
+    conn = sqlite3.connect('users.db')
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM users WHERE fi = ?", (fi,))
+    result = cur.fetchone()
+    conn.close()
+    return result is not None
